@@ -12,7 +12,11 @@ MONGO_URI=mongodb://localhost:27017/agentic-pos
 
 # Solana Configuration (Use devnet for development)
 SOLANA_RPC_URL=https://api.devnet.solana.com
-SOLANA_WALLET_PRIVATE_KEY=your_solana_private_key_here
+# Your merchant wallet's PUBLIC address (where payments will be sent)
+# Leave as 'your_merchant_wallet_address_here' for development (generates temporary wallet)
+MERCHANT_WALLET_ADDRESS=your_merchant_wallet_address_here
+# Helius API key for transaction monitoring (optional but recommended)
+HELIUS_API_KEY=your_helius_api_key_here
 
 # AWS Configuration (for AI Agent)
 AWS_REGION=us-west-2
