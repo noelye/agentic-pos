@@ -81,6 +81,7 @@ const pendingPayments = new Map<string, {
 let paymentWS: WebSocket | null = null;
 let wsReconnectAttempts = 0;
 const maxReconnectAttempts = 10;
+let monitoringStartTime = 0;
 
 // SOL price cache
 let solPriceUSD = 0;
@@ -219,23 +220,29 @@ function setupWebSocketMonitoring() {
   paymentWS.on('open', () => {
     console.log('🔗 WebSocket connected successfully');
     wsReconnectAttempts = 0;
+    monitoringStartTime = Date.now();
 
-    // Subscribe to account changes for our merchant wallet
+    // Subscribe to transactions that mention our merchant wallet
     const subscribeMessage = {
       jsonrpc: '2.0',
       id: 1,
-      method: 'accountSubscribe',
+      method: 'transactionSubscribe',
       params: [
-        merchantPublicKey,
         {
+          failed: false,
+          accountInclude: [merchantPublicKey]
+        },
+        {
+          commitment: 'confirmed',
           encoding: 'jsonParsed',
-          commitment: 'confirmed'
+          transactionDetails: 'full',
+          maxSupportedTransactionVersion: 0
         }
       ]
     };
 
     paymentWS!.send(JSON.stringify(subscribeMessage));
-    console.log(`🔍 Subscribed to account changes for ${merchantPublicKey}`);
+    console.log(`🔍 Subscribed to transactions for ${merchantPublicKey} (monitoring started at ${new Date(monitoringStartTime).toISOString()})`);
 
     // Setup ping to keep connection alive
     const pingInterval = setInterval(() => {
@@ -255,9 +262,21 @@ function setupWebSocketMonitoring() {
     try {
       const message = JSON.parse(data.toString());
       
-      if (message.method === 'accountNotification') {
-        console.log('💰 Account balance changed, checking for payments...');
-        await checkRecentTransactions();
+      if (message.method === 'transactionNotification') {
+        const transactionData = message.params.result;
+        const signature = transactionData.signature;
+        const timestamp = transactionData.transaction.blockTime || (Date.now() / 1000);
+        
+        // Only process transactions that happened after monitoring started
+        if (timestamp * 1000 >= monitoringStartTime) {
+          console.log(`🔔 New transaction detected: ${signature}`);
+          console.log(`📅 Transaction time: ${new Date(timestamp * 1000).toISOString()}`);
+          console.log(`🕐 Monitoring started: ${new Date(monitoringStartTime).toISOString()}`);
+          
+          await analyzeSpecificTransaction(transactionData);
+        } else {
+          console.log(`⏰ Skipping old transaction: ${signature} (before monitoring started)`);
+        }
       }
     } catch (error) {
       console.error('❌ Error processing WebSocket message:', error);
@@ -286,23 +305,97 @@ function setupWebSocketMonitoring() {
   });
 }
 
-// Check recent transactions when account balance changes
+// Analyze a specific transaction received via WebSocket
+async function analyzeSpecificTransaction(transactionData: any) {
+  try {
+    const signature = transactionData.signature;
+    console.log(`🔍 Analyzing transaction: ${signature}`);
+    console.log(`📋 Current pending payments: ${pendingPayments.size}`);
+    
+    // List pending payments for debugging
+    for (const [paymentId, payment] of pendingPayments.entries()) {
+      console.log(`   - Order ${payment.orderId}: $${payment.amount} = ${payment.solAmount} SOL (Payment ID: ${paymentId})`);
+    }
+
+    // Check if transaction has native transfers
+    if (transactionData.transaction && transactionData.transaction.meta && transactionData.transaction.meta.postBalances) {
+      // Extract account keys and balance changes
+      const accountKeys = transactionData.transaction.transaction.message.accountKeys;
+      const preBalances = transactionData.transaction.meta.preBalances;
+      const postBalances = transactionData.transaction.meta.postBalances;
+      
+      // Find our merchant wallet in the account keys
+      let merchantIndex = -1;
+      for (let i = 0; i < accountKeys.length; i++) {
+        if (accountKeys[i].pubkey === merchantPublicKey) {
+          merchantIndex = i;
+          break;
+        }
+      }
+      
+      if (merchantIndex !== -1) {
+        const preBalance = preBalances[merchantIndex];
+        const postBalance = postBalances[merchantIndex];
+        const balanceChange = postBalance - preBalance;
+        
+        if (balanceChange > 0) {
+          const receivedAmount = balanceChange / 1000000000; // Convert lamports to SOL
+          console.log(`💰 Received SOL payment: ${receivedAmount} SOL (${balanceChange} lamports), Signature: ${signature}`);
+          
+          await checkPaymentMatch(receivedAmount, signature);
+        } else if (balanceChange < 0) {
+          console.log(`📤 SOL sent out: ${Math.abs(balanceChange / 1000000000)} SOL, Signature: ${signature}`);
+        } else {
+          console.log(`🔄 No balance change for merchant wallet, Signature: ${signature}`);
+        }
+      } else {
+        console.log(`⚠️  Merchant wallet not found in transaction accounts, Signature: ${signature}`);
+      }
+    } else {
+      console.log(`⚠️  Transaction missing balance data, Signature: ${signature}`);
+    }
+  } catch (error: any) {
+    console.error('❌ Error analyzing transaction:', error);
+    console.error('Transaction data:', JSON.stringify(transactionData, null, 2));
+  }
+}
+
+// Check recent transactions when account balance changes (legacy - kept for fallback)
 async function checkRecentTransactions() {
   try {
+    console.log(`🔍 Checking recent transactions for ${merchantPublicKey}...`);
+    console.log(`📋 Current pending payments: ${pendingPayments.size}`);
+    
+    // List pending payments for debugging
+    for (const [paymentId, payment] of pendingPayments.entries()) {
+      console.log(`   - Order ${payment.orderId}: $${payment.amount} = ${payment.solAmount} SOL (Payment ID: ${paymentId})`);
+    }
+
     // Get recent transactions for our merchant wallet
     const response = await axios.get(
-      `https://api.helius.xyz/v0/addresses/${merchantPublicKey}/transactions?api-key=${heliusApiKey}&limit=10`
+      `https://api.helius.xyz/v0/addresses/${merchantPublicKey}/transactions?api-key=${heliusApiKey}&limit=20`
     );
 
     const transactions = response.data;
+    console.log(`📊 Found ${transactions.length} recent transactions`);
     
     for (const tx of transactions) {
+      console.log(`\n🔍 Processing transaction: ${tx.signature}`);
+      console.log(`   Type: ${tx.type}`);
+      console.log(`   Description: ${tx.description || 'N/A'}`);
+      
+      // Debug: Log the full transaction structure for the first transaction
+      if (transactions.indexOf(tx) === 0) {
+        console.log('📋 Sample transaction structure:', JSON.stringify(tx, null, 2));
+      }
+      
       // Check if this is a relevant payment transaction
       if (tx.type === 'TRANSFER' && tx.tokenTransfers) {
+        console.log(`   Token transfers found: ${tx.tokenTransfers.length}`);
         for (const transfer of tx.tokenTransfers) {
           if (transfer.toUserAccount === merchantPublicKey) {
             const receivedAmount = transfer.tokenAmount;
-            console.log(`💰 Received payment: ${receivedAmount} SOL, Signature: ${tx.signature}`);
+            console.log(`💰 Received token payment: ${receivedAmount} tokens, Signature: ${tx.signature}`);
             
             // Check if this matches any pending payments
             await checkPaymentMatch(receivedAmount, tx.signature);
@@ -311,19 +404,24 @@ async function checkRecentTransactions() {
       }
       
       // Also check native SOL transfers
-      if (tx.nativeTransfers) {
+      if (tx.nativeTransfers && tx.nativeTransfers.length > 0) {
+        console.log(`   Native transfers found: ${tx.nativeTransfers.length}`);
         for (const transfer of tx.nativeTransfers) {
+          console.log(`   Transfer: ${transfer.fromUserAccount} → ${transfer.toUserAccount}: ${transfer.amount} lamports`);
           if (transfer.toUserAccount === merchantPublicKey) {
             const receivedAmount = transfer.amount / 1000000000; // Convert lamports to SOL
-            console.log(`💰 Received SOL payment: ${receivedAmount} SOL, Signature: ${tx.signature}`);
+            console.log(`💰 Received SOL payment: ${receivedAmount} SOL (${transfer.amount} lamports), Signature: ${tx.signature}`);
             
             await checkPaymentMatch(receivedAmount, tx.signature);
           }
         }
+      } else {
+        console.log(`   No native transfers found`);
       }
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('❌ Error checking recent transactions:', error);
+    console.error('Full error:', error.response?.data || error.message);
   }
 }
 
@@ -331,9 +429,14 @@ async function checkRecentTransactions() {
 async function checkPaymentMatch(receivedAmount: number, signature: string) {
   const tolerance = 0.000001; // 0.000001 SOL tolerance for rounding differences
   
+  console.log(`🔍 Checking payment match for ${receivedAmount} SOL...`);
+  console.log(`📋 Pending payments to check: ${pendingPayments.size}`);
+  
   for (const [paymentId, payment] of pendingPayments.entries()) {
     const expectedAmount = payment.solAmount;
     const difference = Math.abs(receivedAmount - expectedAmount);
+    
+    console.log(`   🔍 Comparing: Expected ${expectedAmount} SOL vs Received ${receivedAmount} SOL (diff: ${difference})`);
     
     if (difference <= tolerance) {
       console.log(`✅ Payment confirmed! Order: ${payment.orderId}, Expected: ${expectedAmount} SOL, Received: ${receivedAmount} SOL`);
@@ -348,7 +451,11 @@ async function checkPaymentMatch(receivedAmount: number, signature: string) {
     }
   }
   
-  console.log(`⚠️  Received payment ${receivedAmount} SOL but no matching pending order found`);
+  if (pendingPayments.size === 0) {
+    console.log(`⚠️  Received payment ${receivedAmount} SOL but no pending orders in system`);
+  } else {
+    console.log(`⚠️  Received payment ${receivedAmount} SOL but no matching pending order found (tolerance: ${tolerance} SOL)`);
+  }
 }
 
 // Update order status via API call to server
