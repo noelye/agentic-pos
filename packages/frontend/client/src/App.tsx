@@ -28,6 +28,17 @@ interface Order {
   createdAt: string
 }
 
+interface PaymentData {
+  orderId: string
+  paymentId: string
+  merchantWallet: string
+  uri: string
+  qrCode: string
+  amount: number
+  solAmount: number
+  solPrice: number
+}
+
 function App() {
   const [menuItems, setMenuItems] = useState<MenuItem[]>([])
   const [categories, setCategories] = useState<string[]>([])
@@ -35,7 +46,7 @@ function App() {
   const [cart, setCart] = useState<CartItem[]>([])
   const [isRecording, setIsRecording] = useState(false)
   const [order, setOrder] = useState<Order | null>(null)
-  const [paymentData, setPaymentData] = useState<any>(null)
+  const [paymentData, setPaymentData] = useState<PaymentData | null>(null)
   const [loading, setLoading] = useState(true)
   const [customerName, setCustomerName] = useState('')
 
@@ -47,7 +58,7 @@ function App() {
     try {
       // Load categories
       const categoriesResponse = await axios.get('http://localhost:4000/menu/categories')
-      const categoryNames = categoriesResponse.data.map((cat: any) => cat.name)
+      const categoryNames = categoriesResponse.data.map((cat: { name: string }) => cat.name)
       setCategories(['All', ...categoryNames])
 
       // Load menu items
@@ -100,21 +111,14 @@ function App() {
   const startRecording = () => {
     setIsRecording(true)
     console.log('🎤 Voice recording started...')
-    // TODO: Implement actual voice recording
   }
 
   const stopRecording = async () => {
     setIsRecording(false)
     console.log('🎤 Voice recording stopped...')
     
-    // Simulate voice order processing
-    setTimeout(() => {
-      const randomItem = menuItems[Math.floor(Math.random() * menuItems.length)]
-      if (randomItem) {
-        addToCart(randomItem)
-        alert(`Added "${randomItem.name}" to your order via voice!`)
-      }
-    }, 1000)
+    // Simple voice confirmation
+    alert('Voice order received! Please add items to your cart manually.')
   }
 
   const placeOrder = async () => {
@@ -136,18 +140,27 @@ function App() {
         totalAmount: getCartTotal()
       }
 
-      const response = await axios.post('http://localhost:4000/orders', orderData)
-      setOrder(response.data)
-      
-      // Generate payment QR
+      // Create order directly with main server
+      const orderResponse = await axios.post('http://localhost:4000/orders', orderData)
+      const order = orderResponse.data
+
+      // Create payment directly with payments service
       const paymentResponse = await axios.post('http://localhost:4001/create', {
-        orderId: response.data.id,
+        orderId: order.id,
         amount: getCartTotal()
       })
-      setPaymentData(paymentResponse.data)
+      const payment = paymentResponse.data
+
+      // Set order and payment data
+      setOrder(order)
+      setPaymentData(payment)
       
       // Clear cart
       setCart([])
+      
+      // Show success message
+      alert('Order placed successfully! Check your QR code for payment.')
+      
     } catch (error) {
       console.error('Error placing order:', error)
       alert('Failed to place order. Please try again.')
