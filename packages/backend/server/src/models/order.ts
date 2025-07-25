@@ -1,4 +1,29 @@
 import { Schema, model } from 'mongoose';
 import { Order } from '@agentic-pos/shared';
-const schema = new Schema<Order>({ items: [{ menuItemId: String, quantity: Number }], dietaryNotes: String, language: String, status: String, createdAt: String });
-export const OrderModel = model<Order>('Order', schema); 
+
+const orderSchema = new Schema<Order>({
+  items: [{ 
+    menuItemId: String, 
+    quantity: Number,
+    specialInstructions: String
+  }],
+  dietaryNotes: String,
+  language: String,
+  status: { type: String, default: 'pending' },
+  createdAt: String,
+  totalAmount: Number,
+  customerName: String,
+  orderType: { type: String, default: 'dine-in' }
+}, {
+  timestamps: true,
+  toJSON: { 
+    transform: function(doc, ret) {
+      ret.id = ret._id;
+      delete ret._id;
+      delete ret.__v;
+      return ret;
+    }
+  }
+});
+
+export const OrderModel = model<Order>('Order', orderSchema); 
