@@ -35,7 +35,7 @@ function App() {
   const [cart, setCart] = useState<CartItem[]>([])
   const [isRecording, setIsRecording] = useState(false)
   const [order, setOrder] = useState<Order | null>(null)
-  const [qrUri, setQrUri] = useState<string>('')
+  const [paymentData, setPaymentData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [customerName, setCustomerName] = useState('')
 
@@ -144,7 +144,7 @@ function App() {
         orderId: response.data.id,
         amount: getCartTotal()
       })
-      setQrUri(paymentResponse.data.uri)
+      setPaymentData(paymentResponse.data)
       
       // Clear cart
       setCart([])
@@ -265,18 +265,37 @@ function App() {
             <p><strong>Status:</strong> {order.status}</p>
             <p><strong>Total:</strong> ${getCartTotal().toFixed(2)}</p>
             
-            {qrUri && (
+            {paymentData && (
               <div className="payment-section">
                 <h3>💰 Pay with Solana</h3>
-                <div className="qr-placeholder">
-                  <p>🔗 Payment Link: {qrUri}</p>
-                  <p>📱 Scan QR code to pay</p>
+                <div className="payment-details">
+                  <div className="price-breakdown">
+                    <p><strong>USD Amount:</strong> ${paymentData.amount?.toFixed(2) || '0.00'}</p>
+                    <p><strong>SOL Amount:</strong> {paymentData.solAmount?.toFixed(6) || '0'} SOL</p>
+                    <p><strong>SOL Price:</strong> ${paymentData.solPrice?.toFixed(2) || '0'}</p>
+                  </div>
+                  
+                  {paymentData.qrCode && (
+                    <div className="qr-code-container">
+                      <img src={paymentData.qrCode} alt="Payment QR Code" className="qr-code" />
+                      <p>📱 Scan QR code to pay with Solana</p>
+                    </div>
+                  )}
+                  
+                  <div className="payment-link">
+                    <p><strong>🔗 Payment Link:</strong></p>
+                    <code className="payment-uri">{paymentData.uri}</code>
+                  </div>
+                  
+                  <div className="merchant-info">
+                    <p><strong>📍 Merchant Wallet:</strong> {paymentData.merchantWallet}</p>
+                  </div>
                 </div>
               </div>
             )}
             
             <button 
-              onClick={() => {setOrder(null); setQrUri(''); setCart([])}} 
+              onClick={() => {setOrder(null); setPaymentData(null); setCart([])}} 
               className="new-order-btn"
             >
               Start New Order
