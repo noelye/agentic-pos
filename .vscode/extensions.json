@@ -1,0 +1,13 @@
+{
+  "recommendations": [
+    "ms-vscode.vscode-typescript-next",
+    "bradlc.vscode-tailwindcss",
+    "esbenp.prettier-vscode",
+    "ms-vscode.vscode-eslint",
+    "ms-vscode.vscode-json",
+    "ms-python.python",
+    "ms-vscode.vscode-docker",
+    "mongodb.mongodb-vscode",
+    "solana-labs.solana-copilot"
+  ]
+} 
