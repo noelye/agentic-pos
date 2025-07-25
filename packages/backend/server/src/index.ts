@@ -35,9 +35,6 @@ app.use((req, res, next) => {
   }
 });
 
-app.use('/orders', orderRoutes);
-app.use('/menu', menuRoutes);
-
 const httpServer = http.createServer(app);
 const io = new IOServer(httpServer, {
   cors: {
@@ -45,7 +42,20 @@ const io = new IOServer(httpServer, {
     methods: ["GET", "POST"]
   }
 });
-io.on('connection', sock => console.log('🔌 WebSocket connected'));
+
+// Pass Socket.IO instance to routes
+app.set('io', io);
+
+app.use('/orders', orderRoutes);
+app.use('/menu', menuRoutes);
+
+io.on('connection', (socket) => {
+  console.log('🔌 WebSocket connected:', socket.id);
+  
+  socket.on('disconnect', () => {
+    console.log('🔌 WebSocket disconnected:', socket.id);
+  });
+});
 
 const startServer = async () => {
   try {

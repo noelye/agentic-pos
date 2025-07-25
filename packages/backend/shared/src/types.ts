@@ -28,6 +28,8 @@ export interface Order {
   totalAmount?: number;
   customerName?: string;
   orderType: 'dine-in' | 'takeout' | 'delivery';
+  transactionSignature?: string;
+  paidAt?: string;
 }
 
 export interface MenuCategory {

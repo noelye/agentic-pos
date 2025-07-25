@@ -38,6 +38,14 @@ function App() {
   const [paymentData, setPaymentData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [customerName, setCustomerName] = useState('')
+  
+  // Speech-to-text state
+  const [transcription, setTranscription] = useState('')
+  const [speechWebSocket, setSpeechWebSocket] = useState<WebSocket | null>(null)
+  const [isTranscribing, setIsTranscribing] = useState(false)
+  const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null)
+  const [transcriptionHistory, setTranscriptionHistory] = useState<string[]>([])
+  const [showVoiceInterface, setShowVoiceInterface] = useState(false)
 
   useEffect(() => {
     loadMenu()
@@ -97,25 +105,126 @@ function App() {
     return cart.reduce((total, item) => total + (item.menuItem.priceUsd * item.quantity), 0)
   }
 
-  const startRecording = () => {
-    setIsRecording(true)
-    console.log('🎤 Voice recording started...')
-    // TODO: Implement actual voice recording
+  // Speech-to-text functions
+  const connectToSpeechService = () => {
+    try {
+      // Configure speech service endpoint
+      const SPEECH_SERVICE_URL = import.meta.env.VITE_SPEECH_SERVICE_URL || 'ws://localhost:8000/ws/transcribe'
+      console.log('🔍 Environment variable VITE_SPEECH_SERVICE_URL:', import.meta.env.VITE_SPEECH_SERVICE_URL)
+      console.log('🎤 Final speech service URL:', SPEECH_SERVICE_URL)
+      console.log('🌐 All VITE environment variables:', Object.keys(import.meta.env).filter(key => key.startsWith('VITE_')))
+      const ws = new WebSocket(SPEECH_SERVICE_URL)
+      
+      ws.onopen = () => {
+        console.log('Connected to speech service')
+        setSpeechWebSocket(ws)
+      }
+      
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data)
+        
+        if (data.type === 'transcription') {
+          const newText = data.text
+          setTranscription(prev => prev + ' ' + newText)
+          setTranscriptionHistory(prev => [...prev, newText])
+          setIsTranscribing(false)
+        } else if (data.type === 'processing') {
+          setIsTranscribing(true)
+        } else if (data.type === 'error') {
+          console.error('Transcription error:', data.message)
+          setIsTranscribing(false)
+        }
+      }
+      
+      ws.onclose = () => {
+        console.log('Disconnected from speech service')
+        setSpeechWebSocket(null)
+      }
+      
+      ws.onerror = (error) => {
+        console.error('Speech service error:', error)
+        setSpeechWebSocket(null)
+      }
+      
+    } catch (error) {
+      console.error('Failed to connect to speech service:', error)
+    }
   }
 
-  const stopRecording = async () => {
-    setIsRecording(false)
-    console.log('🎤 Voice recording stopped...')
-    
-    // Simulate voice order processing
-    setTimeout(() => {
-      const randomItem = menuItems[Math.floor(Math.random() * menuItems.length)]
-      if (randomItem) {
-        addToCart(randomItem)
-        alert(`Added "${randomItem.name}" to your order via voice!`)
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: { 
+          sampleRate: 16000,
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true
+        } 
+      })
+      
+      const recorder = new MediaRecorder(stream, {
+        mimeType: 'audio/webm;codecs=opus'
+      })
+      
+      const audioChunks: BlobPart[] = []
+      
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunks.push(event.data)
+        }
       }
-    }, 1000)
+      
+      recorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' })
+        
+        if (speechWebSocket && speechWebSocket.readyState === WebSocket.OPEN) {
+          const arrayBuffer = await audioBlob.arrayBuffer()
+          speechWebSocket.send(arrayBuffer)
+        }
+      }
+      
+      // Record in chunks for real-time transcription
+      recorder.start(3000) // 3-second chunks
+      setMediaRecorder(recorder)
+      setIsRecording(true)
+      
+      // Stop recording after 30 seconds (safety)
+      setTimeout(() => {
+        if (recorder.state === 'recording') {
+          stopRecording()
+        }
+      }, 30000)
+      
+    } catch (error) {
+      console.error('Failed to start recording:', error)
+      alert('Microphone access is required for voice ordering')
+    }
   }
+
+  const stopRecording = () => {
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+      mediaRecorder.stop()
+      mediaRecorder.stream.getTracks().forEach(track => track.stop())
+    }
+    setIsRecording(false)
+    setMediaRecorder(null)
+  }
+
+  const clearTranscription = () => {
+    setTranscription('')
+    setTranscriptionHistory([])
+  }
+
+  const toggleVoiceInterface = () => {
+    console.log('🎤 Voice interface button clicked!')
+    setShowVoiceInterface(!showVoiceInterface)
+    if (!showVoiceInterface && !speechWebSocket) {
+      console.log('🔌 Starting connection to speech service...')
+      connectToSpeechService()
+    }
+  }
+
+  // Voice recording functions are defined above (speech-enabled versions)
 
   const placeOrder = async () => {
     if (cart.length === 0) {
@@ -183,12 +292,71 @@ function App() {
             {/* Voice Ordering */}
             <div className="voice-section">
               <button 
-                onMouseDown={startRecording}
-                onMouseUp={stopRecording}
-                className={`voice-button ${isRecording ? 'recording' : ''}`}
+                onClick={toggleVoiceInterface}
+                className={`voice-toggle ${showVoiceInterface ? 'active' : ''}`}
               >
-                {isRecording ? '🎙️ Listening...' : '🎤 Voice Order (Hold to Speak)'}
+                {showVoiceInterface ? '🗣️ Hide Voice Interface' : '🎤 Voice Ordering'}
               </button>
+              
+              {showVoiceInterface && (
+                <div className="voice-interface">
+                  <div className="voice-status">
+                    <span className={`connection-status ${speechWebSocket ? 'connected' : 'disconnected'}`}>
+                      {speechWebSocket ? '🟢 Connected to Speech Service' : '🔴 Disconnected'}
+                    </span>
+                  </div>
+                  
+                  <div className="voice-controls">
+                    <button 
+                      onClick={isRecording ? stopRecording : startRecording}
+                      disabled={!speechWebSocket}
+                      className={`voice-record-button ${isRecording ? 'recording' : ''}`}
+                    >
+                      {isRecording ? '🎙️ Stop Recording' : '🎤 Start Recording'}
+                    </button>
+                    
+                    {transcription && (
+                      <button 
+                        onClick={clearTranscription}
+                        className="clear-button"
+                      >
+                        🗑️ Clear
+                      </button>
+                    )}
+                  </div>
+                  
+                  <div className="transcription-display">
+                    <h4>Live Transcription:</h4>
+                    <div className="transcription-text">
+                      {isTranscribing && <span className="processing">🔄 Processing audio...</span>}
+                      {transcription ? (
+                        <p>{transcription}</p>
+                      ) : (
+                        <p className="placeholder">Your speech will appear here...</p>
+                      )}
+                    </div>
+                    
+                    {transcriptionHistory.length > 0 && (
+                      <div className="transcription-history">
+                        <h5>Recent phrases:</h5>
+                        <ul>
+                          {transcriptionHistory.slice(-5).map((phrase, index) => (
+                            <li key={index}>{phrase}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="voice-instructions">
+                    <p>💡 <strong>Instructions:</strong></p>
+                    <p>• Click "Start Recording" and speak your order</p>
+                    <p>• Say items like "I want two burgers and a cola"</p>
+                    <p>• The transcription will appear above in real-time</p>
+                    <p>• Use the cart below to manually add items for testing</p>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Category Filter */}

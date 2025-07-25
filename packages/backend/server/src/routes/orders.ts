@@ -12,6 +12,14 @@ router.post('/', async (req, res) => {
       createdAt: new Date().toISOString() 
     });
     console.log('📝 Order created:', order.id);
+    
+    // Emit to management console via Socket.IO
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('order:created', order);
+      console.log('📡 Emitted order:created event to management console');
+    }
+    
     res.status(201).json(order);
   } catch (error) {
     console.error('❌ Error creating order:', error);
@@ -66,6 +74,26 @@ router.patch('/:id', async (req, res) => {
     console.log(`📝 Order ${order.id} status updated to: ${status}`);
     if (transactionSignature) {
       console.log(`💰 Transaction signature: ${transactionSignature}`);
+    }
+    
+    // Emit Socket.IO events based on status change
+    const io = req.app.get('io');
+    if (io) {
+      // Always emit to management console
+      io.emit('order:updated', order);
+      console.log('📡 Emitted order:updated event to management console');
+      
+      // If order was just paid, emit to kitchen display
+      if (status === 'paid') {
+        io.emit('order:paid', order);
+        console.log('🍳 Emitted order:paid event to kitchen display');
+      }
+      
+      // If order was completed, could emit to analytics, etc.
+      if (status === 'completed') {
+        io.emit('order:completed', order);
+        console.log('✅ Emitted order:completed event');
+      }
     }
     
     res.json(order);

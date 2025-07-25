@@ -8,11 +8,12 @@
   ],
   "scripts": {
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
-    "dev:backend": "concurrently \"npm run dev:server\" \"npm run dev:payments\" \"npm run dev:ai-agent\"",
+    "dev:backend": "concurrently \"npm run dev:server\" \"npm run dev:payments\" \"npm run dev:ai-agent\" \"npm run dev:speech\"",
     "dev:frontend": "concurrently \"npm run dev:client\" \"npm run dev:kitchen\" \"npm run dev:manager\"",
     "dev:server": "cd packages/backend/server && npm run dev",
     "dev:payments": "cd packages/backend/payments && npm run dev",
     "dev:ai-agent": "cd packages/backend/ai-agent && npm run dev",
+    "dev:speech": "cd packages/backend/speech-service && chmod +x start.sh && bash start.sh",
     "dev:client": "cd packages/frontend/client && npm run dev",
     "dev:kitchen": "cd packages/frontend/kitchen-display && npm run dev",
     "dev:manager": "cd packages/frontend/manager-console && npm run dev",

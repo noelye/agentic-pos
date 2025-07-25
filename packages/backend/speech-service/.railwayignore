@@ -1,0 +1,17 @@
+# Ignore parent directories and their Node.js files
+../../../node_modules
+../../../package.json
+../../../package-lock.json
+../../*/node_modules
+../../*/package.json
+../../*/package-lock.json
+
+# Ignore other build artifacts
+*.pyc
+__pycache__
+.env
+.git
+venv/
+
+# Force Railway to only look at current directory
+node_modules 

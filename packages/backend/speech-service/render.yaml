@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: whisperx-speech-service
+    env: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter  # Free tier
+    healthCheckPath: /health
+    envVars:
+      - key: SPEECH_SERVICE_PORT
+        value: 10000  # Render uses port 10000
+      - key: PYTHONUNBUFFERED
+        value: 1
+    scaling:
+      minInstances: 1
+      maxInstances: 3
+    autoDeploy: false
+    
+# Optional: Background worker for heavy processing
+  # - type: worker
+  #   name: whisperx-worker
+  #   env: docker
+  #   dockerfilePath: ./Dockerfile
+  #   plan: starter
+  #   startCommand: python worker.py 

@@ -13,7 +13,9 @@ const orderSchema = new Schema<Order>({
   createdAt: String,
   totalAmount: Number,
   customerName: String,
-  orderType: { type: String, default: 'dine-in' }
+  orderType: { type: String, default: 'dine-in' },
+  transactionSignature: String,
+  paidAt: String
 }, {
   timestamps: true,
   toJSON: { 
